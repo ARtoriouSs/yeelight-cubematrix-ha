@@ -12,9 +12,30 @@ You get:
 
 ## Supported hardware
 
-- Yeelight Cube Matrix (model `cubematrix`). The lamp must be a Cube Matrix, other Yeelight lamps are refused.
-- One or more 5x5 matrix modules, with optional spot modules, chained in a row or in a column.
-- Several cubes in one Home Assistant are fine, each one is its own entry.
+The integration only adds lamps that report the model `cubematrix`. Other Yeelight lamps are refused.
+
+### Tested
+
+| Device | Notes |
+| --- | --- |
+| Yeelight Cube Matrix base (YLFWD-0010) with one 5x5 matrix module | Everything in this README was tested on this setup: UDP frames up to 40 fps, the button, wake shows |
+
+### Should work, not tested yet
+
+| Device | Why it should work | What could be wrong |
+| --- | --- | --- |
+| Several 5x5 matrix modules on one base, in a row or in a column | They form one canvas (two matrices in a row are 10x5). Set the chain in the options | The order of the modules in the chain is a guess (the first one is the leftmost, or the bottom one in a column). If a picture comes out in the wrong order, please open an issue |
+| 1x1 spot modules on the same base | Each one takes 5 LED slots in the chain (community notes, YeelightMatrix issue #11); it shows a colour from the art or the average colour of the picture | Not seen on a real lamp yet |
+| Up to about 6 matrix modules | A frame for 6 matrices still fits in one UDP message | More modules don't fit in one message, so frames go over the slower LAN fallback (about 1 frame per second) |
+| Several cubes in one Home Assistant | Each cube is its own entry with its own connection, tested with fake lamps | Only one real cube was tried |
+
+### Not supported
+
+| Device | Why |
+| --- | --- |
+| Yeelight Cube Lite (model `cubelite`) | Another model with a 20x5 panel; the setup refuses it. Use a Cube Lite integration instead |
+| Other Cube modules (for example light panels) | Their LED layout is unknown, so the canvas can't be drawn on them |
+| Other Yeelight lamps | No per-LED control |
 
 Tested with Home Assistant 2026.10 (Python 3.14).
 
