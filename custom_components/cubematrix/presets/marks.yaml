@@ -1,0 +1,33 @@
+- name: cross_red
+  size: 5x5
+  palette:
+    x: '#ff1a1a'
+  frames:
+  - |
+    x...x
+    .x.x.
+    ..x..
+    .x.x.
+    x...x
+- name: cross_green
+  size: 5x5
+  palette:
+    x: '#00e000'
+  frames:
+  - |
+    x...x
+    .x.x.
+    ..x..
+    .x.x.
+    x...x
+- name: check_red
+  size: 5x5
+  palette:
+    x: '#ff1a1a'
+  frames:
+  - |
+    .....
+    ....x
+    ...x.
+    x.x..
+    .x...

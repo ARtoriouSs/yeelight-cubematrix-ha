@@ -1,0 +1,11 @@
+name: check
+size: 5x5
+palette:
+  x: '#00e000'
+frames:
+  - |
+    .....
+    ....x
+    ...x.
+    x.x..
+    .x...

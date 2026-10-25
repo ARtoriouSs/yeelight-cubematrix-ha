@@ -1,0 +1,157 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Yeelight Cube Matrix",
+        "description": "Enter the IP address of the lamp. LAN control must be on in the Yeelight app. Reserve this IP in your router, the integration finds the lamp by it",
+        "data": {
+          "host": "IP address"
+        }
+      }
+    },
+    "error": {
+      "cannot_connect": "Can't connect to the lamp. Check the IP address and that LAN control is on",
+      "wrong_model": "This lamp is not a Cube Matrix"
+    },
+    "abort": {
+      "already_configured": "This lamp is already set up"
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Cube Matrix options",
+        "menu_options": {
+          "layout": "Module layout",
+          "preset_add": "Add a preset",
+          "preset_edit": "Edit a preset",
+          "preset_delete": "Delete a preset"
+        }
+      },
+      "layout": {
+        "title": "Module layout",
+        "description": "List the modules in chain order, split by commas, for example: matrix, spot, matrix",
+        "data": {
+          "modules": "Modules",
+          "direction": "Direction"
+        }
+      },
+      "preset_add": {
+        "title": "Add a preset",
+        "description": "A preset is one art in the pixel art format. It is shared by all cubes, and a saved preset wins over a file or built-in one with the same name",
+        "data": {
+          "name": "Name",
+          "text": "Definition"
+        }
+      },
+      "preset_edit": {
+        "title": "Edit a preset",
+        "data": {
+          "name": "Preset"
+        }
+      },
+      "preset_edit_text": {
+        "title": "Edit preset {name}",
+        "data": {
+          "text": "Definition"
+        }
+      },
+      "preset_delete": {
+        "title": "Delete a preset",
+        "data": {
+          "name": "Preset"
+        }
+      }
+    },
+    "error": {
+      "invalid_modules": "Invalid module list: {error}",
+      "invalid_name": "The name can't be empty",
+      "invalid_preset": "Invalid preset: {error}"
+    },
+    "abort": {
+      "no_presets": "There are no saved presets"
+    }
+  },
+  "selector": {
+    "direction": {
+      "options": {
+        "horizontal": "Horizontal",
+        "vertical": "Vertical"
+      }
+    }
+  },
+  "entity": {
+    "select": {
+      "background": {
+        "name": "Background"
+      }
+    },
+    "sensor": {
+      "playing": {
+        "name": "Playing"
+      }
+    }
+  },
+  "services": {
+    "show": {
+      "name": "Show",
+      "description": "Plays pixel art or an effect on the cube, then goes back to the background or to what then says",
+      "fields": {
+        "preset": {
+          "name": "Preset",
+          "description": "Name of a preset to play. Give this or definition, not both"
+        },
+        "definition": {
+          "name": "Definition",
+          "description": "One art in the pixel art format, as YAML text or a mapping. Give this or preset, not both"
+        },
+        "repeat": {
+          "name": "Repeat",
+          "description": "How many times an animation plays, or forever"
+        },
+        "duration": {
+          "name": "Duration",
+          "description": "How long the show lasts in seconds. Without it a still picture or an effect stays 5 seconds"
+        },
+        "fps": {
+          "name": "Frames per second",
+          "description": "Speed of the animation, instead of the art's own fps"
+        },
+        "then": {
+          "name": "Then",
+          "description": "What comes after the show: restore (the background), hold (keep the last frame), off (black) or a preset name"
+        },
+        "fit": {
+          "name": "Fit",
+          "description": "What to do when the art size is not the cube size: error, center or tile"
+        },
+        "wait": {
+          "name": "Wait",
+          "description": "Finish the action only when the show part ends"
+        },
+        "wake": {
+          "name": "Wake",
+          "description": "Play the show even when the cube is off, then turn the lamp off again"
+        }
+      }
+    },
+    "set_background": {
+      "name": "Set background",
+      "description": "Sets what the cube shows when no show is playing",
+      "fields": {
+        "preset": {
+          "name": "Preset",
+          "description": "Name of a preset, or off for black"
+        }
+      }
+    },
+    "stop": {
+      "name": "Stop",
+      "description": "Ends the current show and goes back to the background"
+    },
+    "reload_presets": {
+      "name": "Reload presets",
+      "description": "Reads the preset files in the cubematrix folder of the config folder again"
+    }
+  }
+}

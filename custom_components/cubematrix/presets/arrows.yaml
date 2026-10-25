@@ -1,0 +1,172 @@
+- name: arrow_up
+  size: 5x5
+  palette:
+    x: '#00b4ff'
+  fps: 8
+  loop: false
+  frames:
+  - |
+    ..x..
+    .xxx.
+    x.x.x
+    ..x..
+    ..x..
+  - |
+    .xxx.
+    x.x.x
+    ..x..
+    ..x..
+    .....
+  - |
+    x.x.x
+    ..x..
+    ..x..
+    .....
+    ..x..
+  - |
+    ..x..
+    ..x..
+    .....
+    ..x..
+    .xxx.
+  - |
+    ..x..
+    .....
+    ..x..
+    .xxx.
+    x.x.x
+  - |
+    .....
+    ..x..
+    .xxx.
+    x.x.x
+    ..x..
+- name: arrow_down
+  size: 5x5
+  palette:
+    x: '#00b4ff'
+  fps: 8
+  loop: false
+  frames:
+  - |
+    ..x..
+    ..x..
+    x.x.x
+    .xxx.
+    ..x..
+  - |
+    .....
+    ..x..
+    ..x..
+    x.x.x
+    .xxx.
+  - |
+    ..x..
+    .....
+    ..x..
+    ..x..
+    x.x.x
+  - |
+    .xxx.
+    ..x..
+    .....
+    ..x..
+    ..x..
+  - |
+    x.x.x
+    .xxx.
+    ..x..
+    .....
+    ..x..
+  - |
+    ..x..
+    x.x.x
+    .xxx.
+    ..x..
+    .....
+- name: arrow_left
+  size: 5x5
+  palette:
+    x: '#00b4ff'
+  fps: 8
+  loop: false
+  frames:
+  - |
+    ..x..
+    .x...
+    xxxxx
+    .x...
+    ..x..
+  - |
+    .x...
+    x....
+    xxxx.
+    x....
+    .x...
+  - |
+    x....
+    .....
+    xxx.x
+    .....
+    x....
+  - |
+    .....
+    ....x
+    xx.xx
+    ....x
+    .....
+  - |
+    ....x
+    ...x.
+    x.xxx
+    ...x.
+    ....x
+  - |
+    ...x.
+    ..x..
+    .xxxx
+    ..x..
+    ...x.
+- name: arrow_right
+  size: 5x5
+  palette:
+    x: '#00b4ff'
+  fps: 8
+  loop: false
+  frames:
+  - |
+    ..x..
+    ...x.
+    xxxxx
+    ...x.
+    ..x..
+  - |
+    ...x.
+    ....x
+    .xxxx
+    ....x
+    ...x.
+  - |
+    ....x
+    .....
+    x.xxx
+    .....
+    ....x
+  - |
+    .....
+    x....
+    xx.xx
+    x....
+    .....
+  - |
+    x....
+    .x...
+    xxx.x
+    .x...
+    x....
+  - |
+    .x...
+    ..x..
+    xxxx.
+    ..x..
+    .x...
