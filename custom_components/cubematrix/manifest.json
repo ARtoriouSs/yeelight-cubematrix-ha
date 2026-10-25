@@ -1,6 +1,9 @@
 {
   "domain": "cubematrix",
   "name": "Yeelight Cube Matrix",
+  "categories": [
+    "lighting.bulbs_lamps"
+  ],
   "codeowners": [
     "@ARtoriouSs"
   ],
