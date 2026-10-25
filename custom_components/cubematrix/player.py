@@ -303,11 +303,15 @@ class Player:
             await self._play_event(content, repeat, duration, fps)
         except LampError as err:
             # The moment for this event has passed, it is not played again
-            if self._lamp_lost:
-                _LOGGER.debug("Show %s failed: %s", content.name, err)
+            if isinstance(err, connection.LampTurnedOff):
+                # Turned off on the lamp, the light follows in a moment
+                _LOGGER.debug("Show %s skipped: %s", content.name, err)
             else:
-                _LOGGER.warning("Show %s failed: %s", content.name, err)
-            self._lamp_lost = True
+                if self._lamp_lost:
+                    _LOGGER.debug("Show %s failed: %s", content.name, err)
+                else:
+                    _LOGGER.warning("Show %s failed: %s", content.name, err)
+                self._lamp_lost = True
             failed = True
         except Exception:
             _LOGGER.exception("Show %s stopped with an error", content.name)
@@ -384,6 +388,11 @@ class Player:
                 await play()
                 return
             except LampError as err:
+                if isinstance(err, connection.LampTurnedOff):
+                    # Turned off on the lamp, the light follows in a moment
+                    _LOGGER.debug("Paused: %s", err)
+                    await self._sleep(RETRY_S)
+                    continue
                 if self._lamp_lost:
                     _LOGGER.debug("Lamp still not reachable: %s", err)
                 else:

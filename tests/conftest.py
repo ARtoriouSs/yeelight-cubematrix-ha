@@ -59,6 +59,8 @@ class FakeConnection:
     def __init__(self, host: str, **kwargs) -> None:
         self.host = host
         self.on_change = None
+        self.on_power = None
+        self.on_button = None
         self.max_fps = 30.0
         self.available = False
         self.mode = "offline"
@@ -89,6 +91,13 @@ class FakeConnection:
     async def close(self) -> None:
         self.closed = True
         self._set(False)
+
+    def press(self, on: bool) -> None:
+        """The lamp's button turned it on or off"""
+        self.on_power(on)
+
+    def tap(self) -> None:
+        self.on_button()
 
     def lose(self) -> None:
         self.gone = True

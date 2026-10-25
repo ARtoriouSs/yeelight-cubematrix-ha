@@ -81,6 +81,18 @@
     }
   },
   "entity": {
+    "event": {
+      "button": {
+        "name": "Button",
+        "state_attributes": {
+          "event_type": {
+            "state": {
+              "tap": "Tap"
+            }
+          }
+        }
+      }
+    },
     "select": {
       "background": {
         "name": "Background"

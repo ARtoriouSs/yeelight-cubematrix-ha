@@ -7,6 +7,7 @@ You get:
 - a **light** (on/off and brightness),
 - a **select** called Background (what the cube shows when nothing else plays),
 - a **sensor** called Playing (the name of what is on the cube now),
+- an **event** called Button (fires `tap` when you tap the lamp's button),
 - actions to play pixel art, animations and generated effects.
 
 ## Supported hardware
@@ -242,7 +243,39 @@ Ends the current show and goes back to the background.
 
 Reads the preset files again. It has no target.
 
+## The lamp's button
+
+- **Long press:** the lamp turns off, and the light in Home Assistant turns off with it. The integration doesn't turn the lamp back on. Turn the light on in Home Assistant (or with the button) to start again.
+- **Turned on with the button** (or the Yeelight app): the light turns on and the background plays.
+- **Short tap:** the lamp's own scenes are not used while the integration draws, so a tap does nothing by itself. Each tap fires a `tap` event on the Button entity, so an automation can decide what it does (see the example below).
+
 ## Automation examples
+
+### Tap the button for the next picture
+
+```yaml
+automation:
+  - alias: "Cube: next picture on tap"
+    triggers:
+      - trigger: state
+        entity_id: event.cube_matrix_192_168_1_50_button
+        not_from: unavailable
+    conditions:
+      - condition: template
+        value_template: "{{ trigger.to_state.attributes.event_type == 'tap' }}"
+    variables:
+      pictures: [fire, rainbow, plasma]
+      current: "{{ states('select.cube_matrix_192_168_1_50_background') }}"
+    actions:
+      - action: cubematrix.set_background
+        target:
+          entity_id: light.cube_matrix_192_168_1_50
+        data:
+          preset: >-
+            {% set i = pictures.index(current) if current in pictures else -1 %}
+            {{ pictures[(i + 1) % pictures | length] }}
+```
+
 
 ### Desk up / down arrow
 

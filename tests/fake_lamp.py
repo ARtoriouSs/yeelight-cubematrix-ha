@@ -35,6 +35,9 @@ class _Udp(asyncio.DatagramProtocol):
 class FakeLamp:
     def __init__(self, ip: str) -> None:
         self.ip = ip
+        # Notify LAN clients when set_power changes the power, as the real lamp does
+        self.echo_power = False
+        self.scene = 30
         self.port = 0
         self.udp_port = 0
         self.model = "CubeMatrix"
@@ -157,9 +160,30 @@ class FakeLamp:
         return {"id": message["id"], "result": result}
 
     def _set_power(self, power: str) -> None:
+        changed = power != self.power
         self.power = power
         if power == "off":
             self._leave_direct()
+        if changed and self.echo_power:
+            # Like the real lamp: every connected client hears about a power change
+            self.notify({"power": power})
+
+    def press_off(self) -> None:
+        """A long press on the lamp's button"""
+        self.power = "off"
+        self._leave_direct()
+        self.notify({"power": "off"})
+
+    def press_on(self) -> None:
+        """The lamp turned on with its button: it shows its own scene, not direct mode"""
+        self.power = "on"
+        self._leave_direct()
+        self.notify({"power": "on"})
+
+    def tap(self) -> None:
+        """A short tap: the lamp moves to its next scene and tells LAN the new number"""
+        self.scene += 1
+        self.notify({"beffect_index": self.scene})
 
     def _on_udp(self, data: bytes, addr) -> None:
         for line in data.split(b"\r\n"):

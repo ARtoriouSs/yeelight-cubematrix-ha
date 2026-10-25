@@ -6,7 +6,7 @@ import pytest
 
 from custom_components.cubematrix import connection, udp
 from custom_components.cubematrix import player as player_module
-from custom_components.cubematrix.connection import CubeConnection
+from custom_components.cubematrix.connection import CubeConnection, LampTurnedOff
 from custom_components.cubematrix.effects import EFFECTS
 from custom_components.cubematrix.layout import Layout
 from custom_components.cubematrix.player import Player
@@ -162,16 +162,66 @@ async def test_recovers_after_direct_lost(lamp, make_conn):
     assert lamp.frames == [RED_LEDS]
 
 
-async def test_power_off_notification_sets_power_again(lamp, make_conn):
+async def test_power_off_on_the_lamp_holds_it_off(lamp, make_conn):
+    lamp.echo_power = True
     conn = make_conn(lamp)
+    seen = []
+    conn.on_power = seen.append
     await conn.ensure_ready()
-    lamp.notify({"power": "off"})
-    lamp.power = "off"
-    await wait_until(lambda: not conn._udp_ready())
+    lamp.press_off()
+    await wait_until(lambda: seen == [False])
+    # Nothing turns it back on: frames fail until HA turns the light off
+    with pytest.raises(LampTurnedOff):
+        await conn.send_frame(RED_FRAME)
+    with pytest.raises(LampTurnedOff):
+        await conn.ensure_ready(refresh=True, retry_udp=True)
+    assert lamp.power == "off"
+    assert lamp.calls.count("set_power") == 1
+    # After HA turned the light off, turning it on works again
+    await conn.power_off()
     await conn.send_frame(RED_FRAME)
     await wait_until(lambda: lamp.frames)
-    assert lamp.calls.count("set_power") == 2
+    assert lamp.power == "on"
+
+
+async def test_own_power_changes_are_not_reported(lamp, make_conn):
+    lamp.echo_power = True
+    conn = make_conn(lamp)
+    seen = []
+    conn.on_power = seen.append
+    await conn.ensure_ready()
+    await conn.power_off()
+    await conn.ensure_ready()
+    await asyncio.sleep(0.1)
+    assert seen == []
+    assert lamp.power == "on"
+
+
+async def test_power_on_on_the_lamp_is_reported(lamp, make_conn):
+    lamp.echo_power = True
+    conn = make_conn(lamp)
+    seen = []
+    conn.on_power = seen.append
+    await conn.ensure_ready()
+    lamp.press_off()
+    await wait_until(lambda: seen == [False])
+    lamp.press_on()
+    await wait_until(lambda: seen == [False, True])
+    # Direct mode is set again before the next frame
+    await conn.send_frame(RED_FRAME)
+    await wait_until(lambda: lamp.frames)
     assert lamp.udp_calls.count(DIRECT) == 2
+
+
+async def test_tap_reports_the_button(lamp, make_conn):
+    conn = make_conn(lamp)
+    taps = []
+    conn.on_button = lambda: taps.append(True)
+    await conn.ensure_ready()
+    lamp.tap()
+    lamp.tap()
+    await wait_until(lambda: len(taps) == 2)
+    assert conn._udp_ready()
 
 
 async def test_keep_alive_while_streaming(lamp, make_conn, monkeypatch):

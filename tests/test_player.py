@@ -61,6 +61,7 @@ class FakeSink:
         self.power_offs = 0
         self.fail = 0
         self.fail_ready = 0
+        self.turned_off = 0
         # When set, send_frame never ends and a cancel waits for release
         self.hang = False
         self.release = asyncio.Event()
@@ -82,6 +83,9 @@ class FakeSink:
         if self.fail:
             self.fail -= 1
             raise LampError("lamp is gone")
+        if self.turned_off:
+            self.turned_off -= 1
+            raise connection.LampTurnedOff("turned off on the lamp")
         self.frames.append((self.time.now, raw))
 
     async def power_off(self) -> None:
@@ -819,4 +823,17 @@ async def test_lamp_loss_logged_once(rig, caplog):
     assert levels.count(logging.WARNING) == 1
     assert levels.count(logging.DEBUG) == 4
     assert levels.count(logging.INFO) == 1
+    assert sink.frames
+
+
+async def test_turned_off_on_the_lamp_is_not_a_warning(rig, caplog):
+    player, sink = rig.player, rig.sink
+    sink.turned_off = 2
+    with caplog.at_level(logging.DEBUG, logger=player_module.__name__):
+        await player.turn_on()
+        await rig.time.advance(15)
+    levels = [r.levelno for r in caplog.records if r.name == player_module.__name__]
+    assert logging.WARNING not in levels
+    # No "lamp is back" either, it was never lost
+    assert logging.INFO not in levels
     assert sink.frames

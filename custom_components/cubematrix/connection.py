@@ -30,6 +30,9 @@ KEEP_ALIVE_S = 10.0
 # replies to the frames already on the way would ask for it again
 REACTIVATE_S = 0.5
 
+# A power message this soon after our own set_power is the echo of it, not the button
+OWN_POWER_S = 3.0
+
 # Any of these in a props message means the lamp left direct mode
 DIRECT_LOST_PROPS = ("rgb", "ct", "hue", "sat", "color_mode", "flowing")
 
@@ -47,6 +50,10 @@ TOO_BIG = (
 Mode = Literal["udp", "normal", "offline"]
 
 
+class LampTurnedOff(LampError):
+    """The lamp was turned off with its button or app, it is not turned on again"""
+
+
 class CubeConnection:
     def __init__(
         self,
@@ -58,6 +65,10 @@ class CubeConnection:
     ) -> None:
         self.host = host
         self.on_change: Callable[[], None] | None = None
+        # The lamp was turned on or off by its button or app (not by us)
+        self.on_power: Callable[[bool], None] | None = None
+        # A short tap on the lamp's button
+        self.on_button: Callable[[], None] | None = None
         # How often direct mode was sent again after "illegal request", for debugging
         self.reactivations = 0
         self._lan_port = lan_port
@@ -66,6 +77,10 @@ class CubeConnection:
         self._lan: LanClient | None = None
         self._session: UdpSession | None = None
         self._power_on = False
+        # Turned off on the lamp: stays off until HA turns the light off and on again
+        self._held_off = False
+        # Our last set_power (on or off) and when it was sent, to tell its echo from the button
+        self._own_power: tuple[bool, float] | None = None
         # Direct mode set over LAN, for normal mode
         self._direct = False
         # Direct mode set in the UDP session
@@ -127,10 +142,12 @@ class CubeConnection:
         async with self._lock:
             try:
                 lan = await self._connect_lan()
+                self._mark_own_power(False)
                 await lan.call("set_power", ["off", "smooth", 300])
             except LampError:
                 self._after_failure()
                 raise
+            self._held_off = False
             self._power_on = False
             self._direct = False
             # Nothing to draw, so no session to keep
@@ -151,6 +168,9 @@ class CubeConnection:
     async def _prepare(self, refresh: bool, retry_udp: bool) -> None:
         lan = await self._connect_lan()
         if not self._power_on:
+            if self._held_off:
+                raise LampTurnedOff(f"{self.host} was turned off on the lamp")
+            self._mark_own_power(True)
             await lan.call("set_power", ["on", "smooth", 300])
             self._power_on = True
         if self._udp_may_start(retry_udp):
@@ -294,15 +314,46 @@ class CubeConnection:
 
     def _on_notify(self, params: dict) -> None:
         power = params.get("power")
-        if power == "off":
-            self._power_on = False
-            self._direct = False
-            self._udp_direct = False
-        elif power == "on":
-            self._power_on = True
+        if power in ("on", "off"):
+            self._on_power_message(power == "on")
         if any(key in params for key in DIRECT_LOST_PROPS):
             self._direct = False
             self._udp_direct = False
+        if "beffect_index" in params and self.on_button is not None:
+            # The lamp moves to its next scene on a short tap and reports the new number
+            self.on_button()
+
+    def _mark_own_power(self, on: bool) -> None:
+        self._own_power = (on, asyncio.get_running_loop().time())
+
+    def _on_power_message(self, on: bool) -> None:
+        own = self._own_power
+        echo = (
+            own is not None
+            and own[0] == on
+            and asyncio.get_running_loop().time() - own[1] < OWN_POWER_S
+        )
+        if echo:
+            # One echo per command, a later message is the button again
+            self._own_power = None
+        if on:
+            self._power_on = True
+            if echo:
+                return
+            # The lamp shows its own scene now, direct mode is set again before drawing
+            self._held_off = False
+            self._direct = False
+            self._udp_direct = False
+        else:
+            self._power_on = False
+            self._direct = False
+            self._udp_direct = False
+            if echo:
+                return
+            self._held_off = True
+        _LOGGER.debug("%s was turned %s on the lamp", self.host, "on" if on else "off")
+        if self.on_power is not None:
+            self.on_power(on)
 
     def _on_illegal(self) -> None:
         # Normal: the lamp drops direct mode now and then over UDP

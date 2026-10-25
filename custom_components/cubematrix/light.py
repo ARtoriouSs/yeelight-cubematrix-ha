@@ -2,11 +2,12 @@
 
 from __future__ import annotations
 
+import logging
 from typing import TYPE_CHECKING, Any
 
 from homeassistant.components.light import ATTR_BRIGHTNESS, ColorMode, LightEntity
 from homeassistant.const import CONF_HOST, STATE_OFF
-from homeassistant.core import HomeAssistant
+from homeassistant.core import HomeAssistant, callback
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 from homeassistant.helpers.restore_state import (
@@ -20,6 +21,8 @@ from .protocol import LampError
 
 if TYPE_CHECKING:
     from . import CubeMatrixConfigEntry
+
+_LOGGER = logging.getLogger(__name__)
 
 # A show with wait: true must not block other calls to the same light
 PARALLEL_UPDATES = 0
@@ -70,9 +73,11 @@ class CubeLight(LightEntity, RestoreEntity):
         self.async_on_remove(self.player.add_listener(self.async_write_ha_state))
         connection = self.runtime.connection
         connection.on_change = self.async_write_ha_state
+        connection.on_power = self._lamp_power
 
         def forget() -> None:
             connection.on_change = None
+            connection.on_power = None
 
         self.async_on_remove(forget)
 
@@ -88,6 +93,21 @@ class CubeLight(LightEntity, RestoreEntity):
         # A new light starts on. Anything but off (for example unavailable) means on
         if last_state is None or last_state.state != STATE_OFF:
             await self.player.turn_on()
+
+    @callback
+    def _lamp_power(self, on: bool) -> None:
+        # The lamp's button or app turned it on or off: the light follows
+        if on and not self.player.power:
+            self.hass.async_create_task(self.player.turn_on())
+        elif not on and self.player.power:
+            self.hass.async_create_task(self._follow_off())
+
+    async def _follow_off(self) -> None:
+        try:
+            await self.player.turn_off()
+        except LampError as err:
+            # The lamp is off already, the light state is what counts
+            _LOGGER.debug("Lamp did not answer while following its button: %s", err)
 
     async def async_turn_on(self, **kwargs: Any) -> None:
         if ATTR_BRIGHTNESS in kwargs:

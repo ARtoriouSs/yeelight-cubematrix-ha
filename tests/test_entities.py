@@ -16,6 +16,7 @@ HOST = "10.0.0.1"
 LIGHT = "light.cube_matrix_10_0_0_1"
 SELECT = "select.cube_matrix_10_0_0_1_background"
 SENSOR = "sensor.cube_matrix_10_0_0_1_playing"
+BUTTON = "event.cube_matrix_10_0_0_1_button"
 
 SMILE = """
 name: smile
@@ -67,6 +68,41 @@ async def test_light_off_on(hass, entry, fake_cubes):
     assert hass.states.get(LIGHT).attributes[ATTR_BRIGHTNESS] == 40
     assert entry.runtime_data.player.brightness == 40
     assert hass.states.get(SENSOR).state == "fire"
+
+
+async def test_lamp_button_turns_light_off_and_on(hass, entry, fake_cubes):
+    cube = fake_cubes[HOST]
+    cube.press(False)
+    await settle(hass)
+    assert hass.states.get(LIGHT).state == STATE_OFF
+    assert hass.states.get(SENSOR).state == "off"
+    # The light tells the connection it is off, so the lamp may be turned on later
+    assert cube.power_offs == 1
+    cube.press(True)
+    await settle(hass)
+    assert hass.states.get(LIGHT).state == STATE_ON
+    assert hass.states.get(SENSOR).state == "fire"
+
+
+async def test_lamp_button_matching_state_changes_nothing(hass, entry, fake_cubes):
+    cube = fake_cubes[HOST]
+    cube.press(True)
+    await settle(hass)
+    assert hass.states.get(LIGHT).state == STATE_ON
+    assert cube.power_offs == 0
+
+
+async def test_tap_fires_button_event(hass, entry, fake_cubes):
+    cube = fake_cubes[HOST]
+    assert hass.states.get(BUTTON).attributes["event_types"] == ["tap"]
+    cube.tap()
+    await settle(hass)
+    first = hass.states.get(BUTTON)
+    assert first.attributes["event_type"] == "tap"
+    cube.tap()
+    await settle(hass)
+    # Every tap is a new event, the state is its time
+    assert hass.states.get(BUTTON).state != first.state
 
 
 async def test_select_changes_background(hass, entry):
