@@ -38,10 +38,8 @@ This way the lamp keeps the same address after a restart of the lamp or the rout
 
 ### HACS (custom repository)
 
-Not published yet. When it is:
-
 1. In HACS, open the menu, choose **Custom repositories**.
-2. Add the repository URL, category **Integration**.
+2. Add `https://github.com/ARtoriouSs/yeelight-cubematrix-ha`, category **Integration**.
 3. Install **Yeelight Cube Matrix** and restart Home Assistant.
 
 ### Manual
