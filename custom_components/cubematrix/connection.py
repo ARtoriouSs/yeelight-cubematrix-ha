@@ -19,8 +19,9 @@ _LOGGER = logging.getLogger(__name__)
 UDP_MAX_FPS = 25.0
 # Normal mode allows about 60 commands per minute
 NORMAL_MAX_FPS = 1.0
-# Placeholder: how often a still picture is sent again, set by a hardware check
-STATIC_REFRESH_S: float | None = None
+# A still picture is sent again this often. The lamp leaves direct mode every 10-20 s and
+# only says so in the reply to a frame, so without frames it would show its own scenes
+STATIC_REFRESH_S: float | None = 1.0
 # After UDP failed, it is tried again at most this often, and only when the caller
 # asks for it (the background does, a show does not)
 UDP_RETRY_S = 300.0

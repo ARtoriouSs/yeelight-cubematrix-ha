@@ -311,7 +311,8 @@ async def test_then_hold_off_and_preset(rig):
     await rig.time.advance(3)
     assert player.playing == "arrow_up"
     assert sink.last() == (5, 0, 0)
-    assert sink.colours(since=held_at + 0.01) == []
+    # The held frame keeps going out, always the same one
+    assert set(sink.colours(since=held_at + 0.01)) == {(5, 0, 0)}
 
     await player.show(UP, name="arrow_up", then="off")
     await rig.time.advance(1.1)
@@ -369,7 +370,8 @@ async def test_static_duration(rig):
     await player.show(CHECK, name="check", duration=2)
     await rig.time.advance(1.9)
     assert player.playing == "check"
-    assert sink.colours(since=start) == [(0, 0, 200)]
+    # Sent again after 1 s while it is held
+    assert sink.colours(since=start) == [(0, 0, 200)] * 2
     await rig.time.advance(0.2)
     assert player.playing == "fire"
     # Default hold is 5 s
@@ -559,6 +561,18 @@ async def test_set_background(rig):
     await player.set_background("plasma")
     await settle()
     assert player.playing == "plasma"
+
+
+async def test_still_picture_sent_every_second_by_default(rig):
+    # The lamp drops direct mode every 10-20 s without a word; only a frame's
+    # "illegal request" reply tells, so a still picture must keep going out
+    player, sink = rig.player, rig.sink
+    await player.turn_on()
+    await player.set_background("check")
+    await rig.time.advance(0.1)
+    start = rig.time.now
+    await rig.time.advance(5.05)
+    assert sink.colours(since=start) == [(0, 0, 200)] * 5
 
 
 async def test_static_refresh(rig, monkeypatch):

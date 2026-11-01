@@ -390,7 +390,7 @@ actions:
 ## Troubleshooting
 
 **The colour changes by itself, or the picture disappears.**
-Matter, the Yeelight app or another integration changed the lamp's colour. The lamp then leaves direct mode. The integration notices this and recovers, but there can be a short flash. A still picture (for example the `off` background) is checked and sent again every 30 seconds, so it can take up to 30 seconds to come back. The same check finds a lamp that lost power: the light becomes unavailable and comes back by itself. Do not control the same lamp from other apps or integrations while the cube is in use.
+Matter, the Yeelight app or another integration changed the lamp's colour. The lamp then leaves direct mode. The integration notices this and recovers, but there can be a short flash. A still picture (for example the `off` background) is sent again every second, so it comes back within about a second. Every 30 seconds the lamp is also checked, which finds a lamp that lost power: the light becomes unavailable and comes back by itself. Do not control the same lamp from other apps or integrations while the cube is in use.
 
 **The lamp ignores frames, or the cube stays dark or shows wrong pixels.**
 - Check that **LAN Control** is on in the Yeelight app.
