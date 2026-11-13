@@ -62,6 +62,8 @@ class FakeSink:
         self.fail = 0
         self.fail_ready = 0
         self.turned_off = 0
+        # This many frames are only held by the sink (direct mode is being set again)
+        self.held = 0
         # When set, send_frame never ends and a cancel waits for release
         self.hang = False
         self.release = asyncio.Event()
@@ -86,7 +88,11 @@ class FakeSink:
         if self.turned_off:
             self.turned_off -= 1
             raise connection.LampTurnedOff("turned off on the lamp")
+        if self.held:
+            self.held -= 1
+            return False
         self.frames.append((self.time.now, raw))
+        return True
 
     async def power_off(self) -> None:
         self.power_offs += 1
@@ -129,7 +135,7 @@ class ReadySink(FakeSink):
     async def send_frame(self, raw: bytes) -> None:
         if not self.is_ready:
             await self.ensure_ready()
-        await super().send_frame(raw)
+        return await super().send_frame(raw)
 
 
 class Broken:
@@ -893,3 +899,27 @@ async def test_refresh_respects_max_fps(rig):
     await rig.time.advance(3)
     # LAN control: never more than 1 frame per second, also for a still picture
     assert len(sink.colours(since=start)) == 3
+
+
+async def test_long_frame_sent_once_on_lan_control(rig):
+    player, sink = rig.player, rig.sink
+    sink.max_fps = 1.0
+    await player.turn_on()
+    start = rig.time.now
+    await player.set_background("slow")
+    await rig.time.advance(1.4)
+    # LAN control has a quota, the 1.5 s frame is not sent again
+    assert sink.colours(since=start).count((9, 0, 0)) == 1
+
+
+async def test_held_frame_is_not_a_sign_the_lamp_is_back(rig, caplog):
+    player, sink = rig.player, rig.sink
+    sink.fail = 1
+    sink.held = 1000
+    with caplog.at_level(logging.INFO, logger="custom_components.cubematrix"):
+        await player.turn_on()
+        await rig.time.advance(3)
+        assert "reachable again" not in caplog.text
+        sink.held = 0
+        await rig.time.advance(1)
+        assert "reachable again" in caplog.text

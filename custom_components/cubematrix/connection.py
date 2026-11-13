@@ -138,19 +138,20 @@ class CubeConnection:
                 self._after_failure()
                 raise
 
-    async def send_frame(self, raw: bytes) -> None:
+    async def send_frame(self, raw: bytes) -> bool:
+        """Send a frame, False when it is only held until direct mode is back"""
         data = encode_leds(raw)
         if self._reactivating():
             # Goes out as soon as the lamp is in direct mode again
             self._held_frame = data
-            return
+            return False
         if self._needs_ready():
             await self.ensure_ready()
         if self._mode == "udp":
             try:
                 self._send_udp(data)
                 self._last_data = data
-                return
+                return True
             except UdpTooLarge as err:
                 if not self._too_big:
                     self._too_big = True
@@ -159,6 +160,7 @@ class CubeConnection:
                     await self._stop_udp()
                 await self.ensure_ready()
         await self._send_normal(data)
+        return True
 
     async def power_off(self) -> None:
         async with self._lock:
@@ -407,6 +409,8 @@ class CubeConnection:
     async def _reactivate(self) -> None:
         session = self._session
         if session is None or not session.is_open:
+            # The next frame opens a new session, an older held frame would only be stale then
+            self._held_frame = None
             return
         loop = asyncio.get_running_loop()
         if self._last_reactivated_at is not None:

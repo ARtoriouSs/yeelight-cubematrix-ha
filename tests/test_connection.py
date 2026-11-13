@@ -176,6 +176,28 @@ async def test_no_reactivation_after_the_lamp_is_turned_off(lamp, make_conn):
     assert activates_sent(lamp) == 1
 
 
+async def test_held_frame_is_dropped_when_reactivation_cannot_run(lamp, make_conn):
+    conn = make_conn(lamp)
+    await conn.ensure_ready()
+    # The session is gone before the re-activation task starts
+    conn._session._drop_token(conn._session._token)
+    conn._on_illegal()
+    assert await conn.send_frame(RED_FRAME) is False
+    await conn._reactivate_task
+    assert conn._held_frame is None
+
+
+async def test_send_frame_says_if_the_frame_went_out(lamp, make_conn):
+    conn = make_conn(lamp)
+    await conn.ensure_ready()
+    assert await conn.send_frame(RED_FRAME) is True
+    lamp.udp_delay[DIRECT] = 0.3
+    lamp.drop_direct_quietly()
+    await conn.send_frame(RED_FRAME)
+    await wait_until(lambda: conn.reactivations == 1)
+    assert await conn.send_frame(GREEN_FRAME) is False
+
+
 async def test_ensure_ready_waits_for_a_running_reactivation(lamp, make_conn):
     conn = make_conn(lamp)
     await conn.ensure_ready()

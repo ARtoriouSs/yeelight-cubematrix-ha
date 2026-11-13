@@ -69,6 +69,7 @@ class FakeLamp:
         self._udp: asyncio.DatagramTransport | None = None
         self._lan_writers: list[asyncio.StreamWriter] = []
         self._tasks: set[asyncio.Task] = set()
+        self._timers: list[asyncio.TimerHandle] = []
 
     async def start(self, port: int | None = None) -> int:
         self._server = await asyncio.start_server(
@@ -88,6 +89,8 @@ class FakeLamp:
             self._server.close()
         for writer in list(self._lan_writers):
             writer.close()
+        for timer in self._timers:
+            timer.cancel()
         for task in list(self._tasks):
             task.cancel()
         if self._tasks:
@@ -199,8 +202,10 @@ class FakeLamp:
                 continue
             delay = self.udp_delay.get(message["method"])
             if delay is not None:
-                asyncio.get_running_loop().call_later(
-                    delay, self._reply_udp, message, addr
+                self._timers.append(
+                    asyncio.get_running_loop().call_later(
+                        delay, self._reply_udp, message, addr
+                    )
                 )
                 continue
             self._reply_udp(message, addr)

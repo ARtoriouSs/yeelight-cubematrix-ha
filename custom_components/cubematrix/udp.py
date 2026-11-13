@@ -164,6 +164,7 @@ class UdpSession:
             )
         except TimeoutError as err:
             # A session that doesn't answer is gone
+            self._pending.pop(id, None)
             self._drop_token(token)
             raise UdpUnavailable(f"No UDP reply to {method}") from err
         finally:
@@ -256,13 +257,15 @@ class UdpSession:
             if id > self._direct_from_id:
                 self._call_back(self.on_illegal)
         elif code == CODE_TOKEN_REFUSED and self._token is not None:
-            self._token = None
+            self._drop_token(self._token)
             self._call_back(self.on_refused)
 
     def _drop_token(self, token: str) -> None:
         # A new session may have been opened in the meantime
         if self._token == token:
             self._token = None
+            # Calls still waiting in this session get no answer any more
+            self._fail_waiting(UdpUnavailable("UDP session gone"))
 
     def _failed(self, exc: Exception) -> None:
         _LOGGER.debug("UDP error with %s: %r", self.host, exc)

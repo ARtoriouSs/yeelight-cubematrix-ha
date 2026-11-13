@@ -186,3 +186,17 @@ async def test_call_with_waits_sends_once_per_wait(lamp, session):
         )
     sent = [m for m in lamp.datagrams if m["method"] == "activate_fx_mode"]
     assert len(sent) == 2
+
+
+async def test_dropped_token_ends_a_waiting_call_at_once(lamp, session):
+    await session.open()
+    lamp.silent.add("activate_fx_mode")
+    call = asyncio.create_task(
+        session.call("activate_fx_mode", [{"mode": "direct"}], waits=(5.0,))
+    )
+    await asyncio.sleep(0.05)
+    # The keep-alive found the session dead meanwhile
+    session._drop_token(session._token)
+    async with asyncio.timeout(0.5):
+        with pytest.raises(UdpUnavailable):
+            await call

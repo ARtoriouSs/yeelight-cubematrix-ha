@@ -42,7 +42,7 @@ class Sink(Protocol):
 
     async def ensure_ready(self, refresh: bool = False, retry_udp: bool = False) -> None: ...
 
-    async def send_frame(self, raw: bytes) -> None: ...
+    async def send_frame(self, raw: bytes) -> bool: ...
 
     async def power_off(self) -> None: ...
 
@@ -464,7 +464,11 @@ class Player:
             wake = next_at if until is None else min(next_at, until)
             # A long frame is sent again meanwhile, so a lost direct mode is found soon
             refresh = self._refresh()
-            while wake - self._clock() > refresh + 1e-6:
+            # Not on LAN control, every frame counts against the lamp's quota there
+            while (
+                self._sink.max_fps > connection.NORMAL_MAX_FPS
+                and wake - self._clock() > refresh + 1e-6
+            ):
                 await self._sleep(refresh)
                 await self._send(frame, spots)
             delay = wake - self._clock()
@@ -511,7 +515,12 @@ class Player:
 
     async def _send(self, frame: Frame, spots: Sequence[RGB] | None) -> None:
         self._last = (frame, spots)
-        await self._sink.send_frame(self._layout.led_bytes(frame, spots, self.brightness))
+        sent = await self._sink.send_frame(
+            self._layout.led_bytes(frame, spots, self.brightness)
+        )
+        if sent is False:
+            # Only held while direct mode is set again, the lamp may still fail
+            return
         self._failures = 0
         if self._lamp_lost:
             self._lamp_lost = False
