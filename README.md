@@ -2,6 +2,10 @@
 
 Play pixel art and animations on a Yeelight Cube Matrix lamp. The integration talks to the lamp over your local network. There is no cloud.
 
+<a href="https://www.youtube.com/shorts/J9wLgRymfHQ"><img src="https://img.youtube.com/vi/J9wLgRymfHQ/oardefault.jpg" alt="Demo video: frogs and event animations on the cube" width="240"></a>
+
+[Watch the demo on YouTube](https://www.youtube.com/shorts/J9wLgRymfHQ)
+
 You get:
 
 - a **light** (on/off and brightness),
