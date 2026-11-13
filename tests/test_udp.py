@@ -159,3 +159,30 @@ async def test_port_resolved_at_open(lamp, monkeypatch):
         assert session.is_open
     finally:
         session.close()
+
+
+async def test_late_illegal_after_reactivation_is_ignored(lamp, session):
+    illegal = []
+    session.on_illegal = lambda: illegal.append(True)
+    await session.open()
+    # Not in direct mode yet: the frame gets code 6
+    session.send_frame_cmd(["/wAA" * 25])
+    old_id = lamp.datagrams[-1]["id"] if lamp.datagrams else None
+    await wait_until(lambda: illegal == [True])
+    await session.call("activate_fx_mode", [{"mode": "direct"}])
+    # The same kind of reply for the old frame comes in after the "ok"
+    session._received(
+        b'{"id":%d,"error":{"code":6, "message":illegal request}}' % old_id
+    )
+    assert illegal == [True]
+
+
+async def test_call_with_waits_sends_once_per_wait(lamp, session):
+    await session.open()
+    lamp.silent.add("activate_fx_mode")
+    with pytest.raises(UdpUnavailable):
+        await session.call(
+            "activate_fx_mode", [{"mode": "direct"}], waits=(0.05, 0.1)
+        )
+    sent = [m for m in lamp.datagrams if m["method"] == "activate_fx_mode"]
+    assert len(sent) == 2

@@ -13,7 +13,7 @@ import itertools
 import json
 import logging
 import re
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from typing import Any
 
 from .protocol import LampError
@@ -99,6 +99,9 @@ class UdpSession:
         # The id of udp_sess_new for the current session. Replies to older ids
         # belong to an old session
         self._session_id = 0
+        # The id of the last activate_fx_mode that got "ok". A code 6 for an older
+        # frame was sent before it and says nothing new
+        self._direct_from_id = 0
         self._pending: dict[int, asyncio.Future[dict[str, Any]]] = {}
         self._token_waiter: asyncio.Future[str] | None = None
 
@@ -126,18 +129,26 @@ class UdpSession:
         id = next(self._ids)
         try:
             token = await self._send_and_wait(
-                {"id": id, "method": "udp_sess_new", "params": []}, waiter
+                {"id": id, "method": "udp_sess_new", "params": []},
+                waiter,
+                (self._timeout,) * ATTEMPTS,
             )
         except TimeoutError as err:
             raise UdpUnavailable(f"No UDP session from {self.host}:{port}") from err
         finally:
             self._token_waiter = None
         self._session_id = id
+        self._direct_from_id = id
         self._token = token
         _LOGGER.debug("UDP session with %s opened", self.host)
 
-    async def call(self, method: str, params: list) -> list:
-        """Send a command in the session and return the result of the reply"""
+    async def call(
+        self, method: str, params: list, *, waits: Sequence[float] | None = None
+    ) -> list:
+        """Send a command in the session and return the result of the reply
+
+        It is sent once for each wait in waits, then the reply is waited for that long
+        """
         token = self._token
         if token is None:
             raise UdpUnavailable("No UDP session")
@@ -148,7 +159,9 @@ class UdpSession:
         self._pending[id] = future
         message = {"id": id, "method": method, "params": params, "token": token}
         try:
-            reply = await self._send_and_wait(message, future)
+            reply = await self._send_and_wait(
+                message, future, waits or (self._timeout,) * ATTEMPTS
+            )
         except TimeoutError as err:
             # A session that doesn't answer is gone
             self._drop_token(token)
@@ -157,6 +170,8 @@ class UdpSession:
             self._pending.pop(id, None)
         error = reply.get("error")
         if error is None:
+            if method == "activate_fx_mode":
+                self._direct_from_id = max(self._direct_from_id, id)
             return reply.get("result", [])
         if isinstance(error, dict) and error.get("code") == CODE_TOKEN_REFUSED:
             self._drop_token(token)
@@ -187,11 +202,13 @@ class UdpSession:
         if transport is not None:
             transport.close()
 
-    async def _send_and_wait(self, message: dict, future: asyncio.Future) -> Any:
-        for _ in range(ATTEMPTS):
+    async def _send_and_wait(
+        self, message: dict, future: asyncio.Future, waits: Sequence[float]
+    ) -> Any:
+        for wait in waits:
             self._send(message)
             try:
-                async with asyncio.timeout(self._timeout):
+                async with asyncio.timeout(wait):
                     return await asyncio.shield(future)
             except TimeoutError:
                 continue
@@ -236,7 +253,8 @@ class UdpSession:
         if not isinstance(id, int) or id < self._session_id:
             return
         if code == CODE_ILLEGAL:
-            self._call_back(self.on_illegal)
+            if id > self._direct_from_id:
+                self._call_back(self.on_illegal)
         elif code == CODE_TOKEN_REFUSED and self._token is not None:
             self._token = None
             self._call_back(self.on_refused)

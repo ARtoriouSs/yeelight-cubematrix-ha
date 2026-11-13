@@ -92,37 +92,104 @@ async def test_frames_reach_lamp_over_udp_with_token(lamp, make_conn):
     assert set(tokens) == set(lamp.sessions)
 
 
-async def test_illegal_reply_reactivates_once(lamp, make_conn, caplog):
+async def test_illegal_reply_reactivates_once_and_resends(lamp, make_conn, caplog):
     conn = make_conn(lamp)
     await conn.ensure_ready()
     lamp.drop_direct_quietly()
     with caplog.at_level(logging.DEBUG, logger="custom_components.cubematrix"):
-        # All of them get "illegal request", only one re-activation follows
-        for _ in range(5):
-            await conn.send_frame(RED_FRAME)
-        await wait_until(lambda: lamp.udp_calls.count(DIRECT) == 2)
+        await conn.send_frame(RED_FRAME)
+        # No new send_frame: the held frame goes out after the activate
+        await wait_until(lambda: lamp.frames)
         await asyncio.sleep(0.1)
+    assert lamp.frames == [RED_LEDS]
     assert lamp.udp_calls.count(DIRECT) == 2
     assert lamp.udp_calls.count("udp_sess_new") == 1
     assert conn.reactivations == 1
     assert warnings_in(caplog) == []
-    await conn.send_frame(GREEN_FRAME)
-    await wait_until(lambda: lamp.frames)
-    assert lamp.frames == [GREEN_LEDS]
     assert conn.mode == "udp"
 
 
-async def test_reactivation_again_after_the_window(lamp, make_conn, monkeypatch):
-    monkeypatch.setattr(connection, "REACTIVATE_S", 0.1)
+def frames_sent(lamp):
+    return len([m for m in lamp.datagrams if m["method"] == "update_leds"])
+
+
+async def test_no_frames_while_reactivating(lamp, make_conn):
     conn = make_conn(lamp)
     await conn.ensure_ready()
-    for _ in range(2):
-        lamp.drop_direct_quietly()
-        await conn.send_frame(RED_FRAME)
-        await wait_until(lambda: lamp.frames or all(lamp.sessions.values()))
-        await asyncio.sleep(0.15)
-    assert conn.reactivations == 2
-    assert lamp.udp_calls.count(DIRECT) == 3
+    lamp.udp_delay["activate_fx_mode"] = 0.3
+    lamp.drop_direct_quietly()
+    await conn.send_frame(RED_FRAME)
+    await wait_until(lambda: conn.reactivations == 1)
+    before = frames_sent(lamp)
+    for frame in (RED_FRAME, GREEN_FRAME, RED_FRAME, GREEN_FRAME):
+        await conn.send_frame(frame)
+    assert frames_sent(lamp) == before
+    await wait_until(lambda: lamp.frames)
+    await asyncio.sleep(0.1)
+    # Only the newest frame, once
+    assert lamp.frames == [GREEN_LEDS]
+    assert lamp.udp_calls.count(DIRECT) == 2
+
+
+async def test_silent_reactivation_waits_grow_then_new_session(
+    lamp, make_conn, monkeypatch
+):
+    monkeypatch.setattr(connection, "REACTIVATE_WAITS", (0.05, 0.1, 0.2))
+    conn = make_conn(lamp)
+    await conn.ensure_ready()
+    lamp.silent.add(DIRECT)
+    lamp.drop_direct_quietly()
+    await conn.send_frame(RED_FRAME)
+    await wait_until(lambda: conn.reactivations == 1 and not conn._reactivating())
+    assert not conn._session or not conn._session.is_open
+    sent = [m for m in lamp.datagrams if m["method"] == DIRECT]
+    # 1 at the start, then exactly 3 tries
+    assert len(sent) == 4
+    lamp.silent.discard(DIRECT)
+    await conn.send_frame(GREEN_FRAME)
+    await wait_until(lambda: lamp.frames)
+    assert lamp.udp_calls.count("udp_sess_new") == 2
+
+
+def activates_sent(lamp):
+    return len([m for m in lamp.datagrams if m["method"] == DIRECT])
+
+
+async def test_reactivation_never_floods_a_lamp_that_keeps_refusing(lamp, make_conn):
+    conn = make_conn(lamp)
+    await conn.ensure_ready()
+    lamp.refuse_frames = True
+    await conn.send_frame(RED_FRAME)
+    await asyncio.sleep(1.5)
+    # 1 at the start, then at most one a second
+    assert activates_sent(lamp) <= 3
+
+
+async def test_no_reactivation_after_the_lamp_is_turned_off(lamp, make_conn):
+    conn = make_conn(lamp)
+    await conn.ensure_ready()
+    lamp.press_off()
+    await wait_until(lambda: not conn._power_on)
+    # A frame already on the way when the lamp went off
+    conn._session.send_frame_cmd([RED_LEDS])
+    await asyncio.sleep(0.3)
+    assert activates_sent(lamp) == 1
+
+
+async def test_ensure_ready_waits_for_a_running_reactivation(lamp, make_conn):
+    conn = make_conn(lamp)
+    await conn.ensure_ready()
+    lamp.udp_delay[DIRECT] = 0.3
+    lamp.drop_direct_quietly()
+    await conn.send_frame(RED_FRAME)
+    await wait_until(lambda: conn.reactivations == 1)
+    ready = asyncio.create_task(conn.ensure_ready(refresh=True))
+    await asyncio.sleep(0.1)
+    # No second activate while the first one waits for its reply
+    assert activates_sent(lamp) == 2
+    lamp.udp_delay.clear()
+    await ready
+    assert conn.mode == "udp"
 
 
 async def test_refused_token_on_frame_opens_new_session(lamp, make_conn):
@@ -243,7 +310,7 @@ async def test_keep_alive_while_streaming(lamp, make_conn, monkeypatch):
 
 async def test_default_keep_alive_interval():
     assert connection.KEEP_ALIVE_S == 10.0
-    assert connection.REACTIVATE_S == 0.5
+    assert connection.REACTIVATE_WAITS == (1.0, 2.0, 4.0)
 
 
 async def test_refused_keep_alive_opens_new_session(lamp, make_conn, monkeypatch):
@@ -334,41 +401,33 @@ async def test_udp_retried_only_when_asked_after_interval(
     await wait_until(lambda: "udp" in lamp.frame_sources)
 
 
-async def test_fallback_sets_lan_direct_again(lamp, make_conn, monkeypatch):
-    monkeypatch.setattr(connection, "UDP_RETRY_S", 0)
-    monkeypatch.setattr(connection, "KEEP_ALIVE_S", 0.05)
-    lamp.udp_silent = True
-    conn = make_conn(lamp)
-    await conn.ensure_ready()
-    assert conn.mode == "normal"
-    lamp.udp_silent = False
-    await conn.ensure_ready(retry_udp=True)
-    assert conn.mode == "udp"
-    # While UDP runs the lamp loses LAN direct mode without a message
-    lamp.direct = False
-    lamp.udp_silent = True
-    # The keep-alive gets no answer, so the session is gone
-    await wait_until(lambda: not conn._udp_ready())
-    await conn.send_frame(RED_FRAME)
-    assert conn.mode == "normal"
-    await wait_until(lambda: lamp.frames)
-    assert lamp.frame_sources == ["lan"]
-    assert lamp.calls.count(DIRECT) == 2
-
-
-async def test_session_lost_later_warns_and_falls_back(lamp, make_conn, caplog):
+async def test_session_lost_later_retries_udp_not_lan(lamp, make_conn):
     conn = make_conn(lamp)
     await conn.ensure_ready()
     lamp.udp_silent = True
     lamp.forget_sessions()
-    with caplog.at_level(logging.WARNING):
-        # The refresh gets no answer, the new session neither
+    with pytest.raises(LampError):
         await conn.ensure_ready(refresh=True)
-    assert conn.mode == "normal"
-    assert len(warnings_in(caplog)) == 1
-    await conn.send_frame(RED_FRAME)
+    assert conn.mode == "udp"
+    assert DIRECT not in lamp.calls
+    with pytest.raises(LampError):
+        await conn.send_frame(RED_FRAME)
+    assert lamp.frame_sources == []
+    lamp.udp_silent = False
+    # The very next try uses UDP again, no 300 s wait
+    await conn.send_frame(GREEN_FRAME)
     await wait_until(lambda: lamp.frames)
-    assert lamp.frame_sources == ["lan"]
+    assert lamp.frame_sources == ["udp"]
+
+
+async def test_new_lan_connection_keeps_udp_worked(lamp, make_conn):
+    conn = make_conn(lamp)
+    await conn.ensure_ready()
+    await conn._lan.close()
+    lamp.udp_silent = True
+    with pytest.raises(LampError):
+        await conn.ensure_ready()
+    assert conn.mode != "normal"
 
 
 async def test_frame_too_big_for_udp_uses_lan(lamp, make_conn, caplog, monkeypatch):

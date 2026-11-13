@@ -50,6 +50,10 @@ class FakeLamp:
         self.silent: set[str] = set()
         # No UDP replies at all, like a lamp without the session
         self.udp_silent = False
+        # UDP method -> seconds before its reply goes out (and before it takes effect)
+        self.udp_delay: dict[str, float] = {}
+        # Says "ok" to activate_fx_mode but still refuses every frame with code 6
+        self.refuse_frames = False
         # LAN methods
         self.calls: list[str] = []
         # UDP methods, frames not included
@@ -193,9 +197,18 @@ class FakeLamp:
             self.datagrams.append(message)
             if self.udp_silent:
                 continue
-            reply = self._handle_udp(message)
-            if reply is not None and self._udp is not None:
-                self._udp.sendto(reply, addr)
+            delay = self.udp_delay.get(message["method"])
+            if delay is not None:
+                asyncio.get_running_loop().call_later(
+                    delay, self._reply_udp, message, addr
+                )
+                continue
+            self._reply_udp(message, addr)
+
+    def _reply_udp(self, message: dict, addr) -> None:
+        reply = self._handle_udp(message)
+        if reply is not None and self._udp is not None:
+            self._udp.sendto(reply, addr)
 
     def _handle_udp(self, message: dict) -> bytes | None:
         method = message["method"]
@@ -211,7 +224,7 @@ class FakeLamp:
         if token not in self.sessions:
             return lamp_error(id, -1, "invalid parameter", None)
         if method == "update_leds":
-            if self.sessions[token] and self.power == "on":
+            if self.sessions[token] and self.power == "on" and not self.refuse_frames:
                 self.frames.append(params[0])
                 self.frame_sources.append("udp")
                 return None

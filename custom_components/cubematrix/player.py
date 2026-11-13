@@ -22,6 +22,9 @@ _LOGGER = logging.getLogger(__name__)
 DEFAULT_SHOW_S = 5.0
 # Wait after a lamp error before trying the content again
 RETRY_S = 5.0
+# Wait after the 1st, 2nd and every later lamp error in a row. Most errors are short
+# network hiccups, so the first tries come soon
+RETRY_STEPS: tuple[float, ...] = (1.0, 2.0, 5.0)
 # Fit mode for the background, a small art sits in the middle of a bigger canvas
 BACKGROUND_FIT = "center"
 # How often endless content checks the lamp. A still picture is sent again (a shorter
@@ -100,6 +103,8 @@ class Player:
         self._last: tuple[Frame, Sequence[RGB] | None] | None = None
         # Set after a lamp error until a frame goes out again, so the log is not flooded
         self._lamp_lost = False
+        # Lamp errors in a row, for RETRY_STEPS
+        self._failures = 0
 
     # Public API
 
@@ -298,6 +303,7 @@ class Player:
     ) -> None:
         self._set_playing(content.name)
         failed = False
+        retry_s = RETRY_S
         try:
             await self._sink.ensure_ready(refresh=True)
             await self._play_event(content, repeat, duration, fps)
@@ -312,6 +318,7 @@ class Player:
                 else:
                     _LOGGER.warning("Show %s failed: %s", content.name, err)
                 self._lamp_lost = True
+                retry_s = self._retry_delay()
             failed = True
         except Exception:
             _LOGGER.exception("Show %s stopped with an error", content.name)
@@ -320,7 +327,7 @@ class Player:
             self._in_event = False
             done.set()
         if failed:
-            await self._sleep(RETRY_S)
+            await self._sleep(retry_s)
 
         if then == WAKE_OFF:
             self._set_playing(None)
@@ -397,12 +404,12 @@ class Player:
                     _LOGGER.debug("Lamp still not reachable: %s", err)
                 else:
                     _LOGGER.warning(
-                        "Lamp error, trying again every %s s (repeats are logged at debug level): %s",
-                        RETRY_S,
+                        "Lamp error, trying again after %s s (repeats are logged at debug level): %s",
+                        ", ".join(f"{step:g}" for step in RETRY_STEPS),
                         err,
                     )
                 self._lamp_lost = True
-                await self._sleep(RETRY_S)
+                await self._sleep(self._retry_delay())
             except Exception:
                 if fallback is None:
                     raise
@@ -455,6 +462,11 @@ class Player:
                 seconds = max(seconds, 1 / max_fps)
             next_at += seconds
             wake = next_at if until is None else min(next_at, until)
+            # A long frame is sent again meanwhile, so a lost direct mode is found soon
+            refresh = self._refresh()
+            while wake - self._clock() > refresh + 1e-6:
+                await self._sleep(refresh)
+                await self._send(frame, spots)
             delay = wake - self._clock()
             if delay > 0:
                 await self._sleep(delay)
@@ -472,8 +484,8 @@ class Player:
     ) -> None:
         """Show one frame for seconds (None is forever)
 
-        The frame is sent again every STATIC_REFRESH_S or WATCHDOG_S, whichever is shorter,
-        and every WATCHDOG_S the lamp is checked first
+        The frame is sent again every _refresh() seconds, and every WATCHDOG_S the lamp
+        is checked first
         """
         until = None if seconds is None else self._clock() + seconds
         check_at = self._clock() + WATCHDOG_S
@@ -481,9 +493,7 @@ class Player:
             while True:
                 await self._send(frame, spots)
                 self._held = (frame, spots)
-                refresh = connection.STATIC_REFRESH_S
-                if refresh is None or refresh > WATCHDOG_S:
-                    refresh = WATCHDOG_S
+                refresh = self._refresh()
                 left = None if until is None else until - self._clock()
                 if left is not None and left <= 0:
                     return
@@ -502,11 +512,25 @@ class Player:
     async def _send(self, frame: Frame, spots: Sequence[RGB] | None) -> None:
         self._last = (frame, spots)
         await self._sink.send_frame(self._layout.led_bytes(frame, spots, self.brightness))
+        self._failures = 0
         if self._lamp_lost:
             self._lamp_lost = False
             _LOGGER.info("Lamp is reachable again")
 
     # Helpers
+
+    def _retry_delay(self) -> float:
+        delay = RETRY_STEPS[min(self._failures, len(RETRY_STEPS) - 1)]
+        self._failures += 1
+        return delay
+
+    def _refresh(self) -> float:
+        """How often a frame on the cube is sent again: STATIC_REFRESH_S, at most
+        WATCHDOG_S, and never faster than the sink allows (LAN control has a quota)"""
+        refresh = connection.STATIC_REFRESH_S
+        if refresh is None or refresh > WATCHDOG_S:
+            refresh = WATCHDOG_S
+        return max(refresh, 1 / self._sink.max_fps)
 
     def _fit(self, playable: Playable, name: str, fit: str) -> _Content:
         if isinstance(playable, Art):

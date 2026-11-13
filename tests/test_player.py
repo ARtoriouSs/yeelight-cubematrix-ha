@@ -150,13 +150,14 @@ CHECK = solid_art("check", [(0, 0, 200)])
 FAST = solid_art("fast", [(n, n, n) for n in range(1, 31)], fps=30)
 WIDE = solid_art("wide", [(7, 7, 7)], size=(15, 5))
 SMALL = solid_art("small", [(6, 6, 6)], size=(3, 3))
+SLOW = solid_art("slow", [(9, 0, 0), (0, 9, 0)], durations=(1.5, None), fps=4)
 
 
 class Rig:
     def __init__(self, layout: Layout | None = None, sink_class=None) -> None:
         self.time = FakeTime()
         self.sink = (sink_class or FakeSink)(self.time)
-        arts = {art.name: art for art in (UP, DOWN, CHECK, FAST, WIDE, SMALL)}
+        arts = {art.name: art for art in (UP, DOWN, CHECK, FAST, WIDE, SMALL, SLOW)}
         library = PresetLibrary(arts | EFFECTS | {"broken": Broken()}, {}, {})
         self.player = Player(
             self.sink,
@@ -363,8 +364,9 @@ async def test_fps_override_and_frame_durations(rig):
     assert task.done()
 
 
-async def test_static_duration(rig):
+async def test_static_duration(rig, monkeypatch):
     player, sink = rig.player, rig.sink
+    monkeypatch.setattr(connection, "STATIC_REFRESH_S", 1.0)
     await player.turn_on()
     start = rig.time.now
     await player.show(CHECK, name="check", duration=2)
@@ -481,7 +483,7 @@ async def test_sink_error_keeps_player_alive(rig):
     player, sink = rig.player, rig.sink
     sink.fail = 1
     await player.turn_on()
-    await rig.time.advance(4.9)
+    await rig.time.advance(0.9)
     assert sink.frames == []
     assert player.playing == "fire"
     await rig.time.advance(0.2)
@@ -497,7 +499,7 @@ async def test_sink_error_during_event(rig):
     await settle()
     # The event is dropped, the waiter is released
     assert task.done()
-    await rig.time.advance(5.1)
+    await rig.time.advance(1.1)
     assert player.playing == "fire"
     assert sink.frames
 
@@ -563,8 +565,8 @@ async def test_set_background(rig):
     assert player.playing == "plasma"
 
 
-async def test_still_picture_sent_every_second_by_default(rig):
-    # The lamp drops direct mode every 10-20 s without a word; only a frame's
+async def test_still_picture_sent_every_quarter_second_by_default(rig):
+    # The lamp drops direct mode every 30 s without a word; only a frame's
     # "illegal request" reply tells, so a still picture must keep going out
     player, sink = rig.player, rig.sink
     await player.turn_on()
@@ -572,7 +574,7 @@ async def test_still_picture_sent_every_second_by_default(rig):
     await rig.time.advance(0.1)
     start = rig.time.now
     await rig.time.advance(5.05)
-    assert sink.colours(since=start) == [(0, 0, 200)] * 5
+    assert sink.colours(since=start) == [(0, 0, 200)] * 20
 
 
 async def test_static_refresh(rig, monkeypatch):
@@ -610,9 +612,10 @@ async def test_held_picture_watchdog(rig, monkeypatch):
     # A lamp that is gone is noticed at the next check, then tried again
     sink.fail_ready = 1
     start = rig.time.now
-    await rig.time.advance(30)
+    await rig.time.advance(29.5)
     assert sink.colours(since=start) == []
-    await rig.time.advance(5.1)
+    # The check failed at 30, the next try comes 1 s later
+    await rig.time.advance(1.6)
     assert sink.colours(since=start) == [BLACK]
 
 
@@ -851,3 +854,42 @@ async def test_turned_off_on_the_lamp_is_not_a_warning(rig, caplog):
     # No "lamp is back" either, it was never lost
     assert logging.INFO not in levels
     assert sink.frames
+
+
+async def test_retry_waits_grow_and_reset(rig):
+    player, sink = rig.player, rig.sink
+    sink.fail = 3
+    await player.turn_on()
+    # Fails at 0, tries again at 1, 3 (1 + 2) and 8 (3 + 5)
+    await rig.time.advance(7.9)
+    assert sink.frames == []
+    await rig.time.advance(0.2)
+    assert sink.frames
+    # A frame went out, so the next error waits 1 s again
+    sink.fail = 1
+    start = rig.time.now
+    await rig.time.advance(1.3)
+    assert sink.colours(since=start)
+
+
+async def test_long_frame_is_sent_again_while_it_lasts(rig):
+    player, sink = rig.player, rig.sink
+    await player.turn_on()
+    start = rig.time.now
+    await player.set_background("slow")
+    await rig.time.advance(1.4)
+    # Red at 0, 0.25 ... 1.25, green only at 1.5
+    assert sink.colours(since=start).count((9, 0, 0)) == 6
+    assert (0, 9, 0) not in sink.colours(since=start)
+
+
+async def test_refresh_respects_max_fps(rig):
+    player, sink = rig.player, rig.sink
+    sink.max_fps = 1.0
+    await player.turn_on()
+    await player.set_background("check")
+    await rig.time.advance(0.1)
+    start = rig.time.now
+    await rig.time.advance(3)
+    # LAN control: never more than 1 frame per second, also for a still picture
+    assert len(sink.colours(since=start)) == 3

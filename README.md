@@ -105,9 +105,9 @@ Only outgoing connections are used, so no firewall port has to be opened on the 
 What to expect:
 
 - **Frame rate**: at most 25 frames per second. Smooth animation up to 40 fps was seen, but the lamp answers only about 30 messages per second on UDP, and keep-alives and commands share that. Higher `fps` values are cut to this limit.
-- **Short blinks**: now and then the lamp leaves direct mode by itself and answers frames with "illegal request". The integration puts direct mode back at once, which shows as a very short blink. This is normal and is only logged at debug level.
+- **Short blinks**: every 30 seconds, by its own clock, the lamp leaves direct mode and answers the next frame with "illegal request". The integration then holds the frames, puts direct mode back (once, and waits for the answer), and sends the picture again within a few milliseconds. This shows as a very short blink. It is normal and is only logged at debug level.
 - **Frame size**: the lamp drops UDP messages over about 760 bytes. This is enough for about 6 matrices. With a bigger layout the integration logs a warning and uses LAN control (about 1 frame per second).
-- **Fallback**: if the UDP session doesn't work, the integration logs one warning and sends frames over LAN control at about 1 frame per second. While the background plays, UDP is tried again every 5 minutes.
+- **Fallback**: if the UDP session never worked with this lamp, the integration logs one warning and sends frames over LAN control at about 1 frame per second. While the background plays, UDP is tried again every 5 minutes. Once UDP has worked, a short network problem (the lamp stops answering for a few seconds) does not switch to LAN control: the integration tries UDP again after 1, 2 and then every 5 seconds.
 - **LED order**: inside a matrix, LED 0 is at the bottom right, the LEDs go to the left along the row, and the rows go from the bottom up. The integration takes care of this, art is always written top-left first.
 
 ## Pixel art format
@@ -406,7 +406,7 @@ Matter, the Yeelight app or another integration changed the lamp's colour. The l
 The lamp didn't answer on UDP port 55444, so the integration sends frames over LAN control. Check that nothing between Home Assistant and the lamp blocks UDP to port 55444 (for example a firewall that blocks outgoing traffic, or a different network without a route). After you fix it, reload the integration, or wait: while the background plays, UDP is tried again every 5 minutes. A layout of more than about 6 matrices is always slow, see [Connection](#connection).
 
 **The cube blinks for a moment now and then.**
-The lamp left direct mode by itself and the integration put it back. See [Connection](#connection).
+The lamp leaves direct mode by itself every 30 seconds, and the integration puts it back within a few milliseconds. See [Connection](#connection).
 
 ## Development
 

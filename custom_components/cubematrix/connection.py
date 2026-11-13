@@ -19,17 +19,21 @@ _LOGGER = logging.getLogger(__name__)
 UDP_MAX_FPS = 25.0
 # Normal mode allows about 60 commands per minute
 NORMAL_MAX_FPS = 1.0
-# A still picture is sent again this often. The lamp leaves direct mode every 10-20 s and
-# only says so in the reply to a frame, so without frames it would show its own scenes
-STATIC_REFRESH_S: float | None = 1.0
+# A frame on the cube is sent again this often. The lamp leaves direct mode every 30 s and
+# only says so in the reply to a frame, so the next frame should come soon
+STATIC_REFRESH_S: float | None = 0.25
 # After UDP failed, it is tried again at most this often, and only when the caller
 # asks for it (the background does, a show does not)
 UDP_RETRY_S = 300.0
 # The lamp forgets a session without traffic
 KEEP_ALIVE_S = 10.0
-# Direct mode is sent again after "illegal request" at most this often, the
-# replies to the frames already on the way would ask for it again
-REACTIVATE_S = 0.5
+# After "illegal request" one activate_fx_mode goes out and waits this long for its
+# reply, then it is sent again with the next wait. Frames wait meanwhile: a lamp that
+# gets a new activate for every refused frame stops answering for many seconds
+REACTIVATE_WAITS: tuple[float, ...] = (1.0, 2.0, 4.0)
+# A new re-activation waits until this long after the last one that got "ok". The lamp
+# drops direct mode every 30 s, a quicker drop means it refuses frames for another reason
+REACTIVATE_MIN_GAP_S = 1.0
 
 # A power message this soon after our own set_power is the echo of it, not the button
 OWN_POWER_S = 3.0
@@ -90,9 +94,17 @@ class CubeConnection:
         self._udp_failed_at: float | None = None
         # The layout makes frames bigger than one datagram
         self._too_big = False
+        # UDP worked with this lamp once. A failure later is a network hiccup, so it is
+        # tried again as UDP, not with the slow LAN fallback
+        self._udp_worked = False
         self._keep_alive_task: asyncio.Task | None = None
         self._reactivate_task: asyncio.Task | None = None
-        self._last_reactivate: float | None = None
+        # Loop time of the last re-activation that got "ok"
+        self._last_reactivated_at: float | None = None
+        # The newest frame that came in while direct mode was being set again
+        self._held_frame: str | None = None
+        # The last frame sent over UDP, sent again after direct mode is back
+        self._last_data: str | None = None
         self._mode: Mode = "offline"
         self._available = False
         self._lock = asyncio.Lock()
@@ -115,6 +127,10 @@ class CubeConnection:
     async def ensure_ready(
         self, refresh: bool = False, retry_udp: bool = False
     ) -> None:
+        reactivate = self._reactivate_task
+        if reactivate is not None and not reactivate.done():
+            # A second activate at the same time would only confuse the lamp
+            await asyncio.wait({reactivate})
         async with self._lock:
             try:
                 await self._prepare(refresh, retry_udp)
@@ -123,12 +139,17 @@ class CubeConnection:
                 raise
 
     async def send_frame(self, raw: bytes) -> None:
+        data = encode_leds(raw)
+        if self._reactivating():
+            # Goes out as soon as the lamp is in direct mode again
+            self._held_frame = data
+            return
         if self._needs_ready():
             await self.ensure_ready()
-        data = encode_leds(raw)
         if self._mode == "udp":
             try:
                 self._send_udp(data)
+                self._last_data = data
                 return
             except UdpTooLarge as err:
                 if not self._too_big:
@@ -181,6 +202,9 @@ class CubeConnection:
                 await self._start_udp(refresh)
             except UdpUnavailable as err:
                 await self._stop_udp()
+                if self._udp_worked:
+                    _LOGGER.debug("UDP session with %s lost: %s", self.host, err)
+                    raise
                 log = _LOGGER.debug if retry else _LOGGER.warning
                 log(UDP_FALLBACK, self.host, err)
                 self._udp_failed_at = asyncio.get_running_loop().time()
@@ -188,6 +212,7 @@ class CubeConnection:
                 if retry:
                     _LOGGER.info("UDP session with %s works again", self.host)
                 self._udp_failed_at = None
+                self._udp_worked = True
                 # LAN direct mode may go stale while UDP runs, a fallback sets it again
                 self._direct = False
                 self._set_state("udp", True)
@@ -356,19 +381,19 @@ class CubeConnection:
         if self.on_power is not None:
             self.on_power(on)
 
+    def _reactivating(self) -> bool:
+        return self._reactivate_task is not None and not self._reactivate_task.done()
+
     def _on_illegal(self) -> None:
-        # Normal: the lamp drops direct mode now and then over UDP
-        if self._session is None:
-            return
-        now = asyncio.get_running_loop().time()
+        # Normal: the lamp drops direct mode every 30 s over UDP
         if (
-            self._last_reactivate is not None
-            and now - self._last_reactivate < REACTIVATE_S
+            self._session is None
+            or self._reactivating()
+            or not self._power_on
+            or self._held_off
         ):
             return
-        if self._reactivate_task is not None and not self._reactivate_task.done():
-            return
-        self._last_reactivate = now
+        self._udp_direct = False
         self.reactivations += 1
         _LOGGER.debug(
             "%s left direct mode, setting it again (%s times)",
@@ -383,12 +408,34 @@ class CubeConnection:
         session = self._session
         if session is None or not session.is_open:
             return
+        loop = asyncio.get_running_loop()
+        if self._last_reactivated_at is not None:
+            wait = self._last_reactivated_at + REACTIVATE_MIN_GAP_S - loop.time()
+            if wait > 0:
+                await asyncio.sleep(wait)
         try:
-            await session.call("activate_fx_mode", DIRECT)
+            await session.call("activate_fx_mode", DIRECT, waits=REACTIVATE_WAITS)
         except LampError as err:
             # The next frame finds the session gone and opens a new one
             _LOGGER.debug("Direct mode for %s not set again: %s", self.host, err)
             self._udp_direct = False
+            self._held_frame = None
+            return
+        self._last_reactivated_at = loop.time()
+        self._udp_direct = True
+        data, self._held_frame = self._held_frame or self._last_data, None
+        if (
+            data is None
+            or session is not self._session
+            or not self._power_on
+            or self._held_off
+        ):
+            return
+        try:
+            self._send_udp(data)
+            self._last_data = data
+        except UdpUnavailable as err:
+            _LOGGER.debug("Frame for %s not sent again: %s", self.host, err)
 
     def _on_refused(self) -> None:
         # The session is gone, the next frame opens a new one
