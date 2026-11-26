@@ -37,11 +37,27 @@ The integration only adds lamps that report the model `cubematrix`. Other Yeelig
 
 | Device | Why |
 | --- | --- |
-| Yeelight Cube Lite (model `cubelite`) | Another model with a 20x5 panel; the setup refuses it. Use a Cube Lite integration instead |
+| Yeelight Cube Lite (model `cubelite`) | Another model with a 20x5 panel; the setup refuses it. Use [Yeelight Cube](https://github.com/Max-src/yeelight-cube-ha) instead |
 | Other Cube modules (for example light panels) | Their LED layout is unknown, so the canvas can't be drawn on them |
 | Other Yeelight lamps | No per-LED control |
 
 Tested with Home Assistant 2026.10 (Python 3.14).
+
+## Other integrations for the Cube Matrix
+
+The [Yeelight Cube](https://github.com/Max-src/yeelight-cube-ha) integration in HACS supports the Cube Matrix too. It drives the lamp over LAN music mode, and with Matter it can run the lamp's own effects, clock and drawings. It also supports Panel modules and has many Lovelace cards.
+
+This integration is smaller and is made for playing pixel art from automations. What it does differently:
+
+| | This integration | Yeelight Cube |
+| --- | --- | --- |
+| Frames | A UDP session in direct mode, up to 25 frames per second | Music mode, at most about 6 frames per second shown |
+| Module layout | `matrix` and `spot` modules in a row or a column form one canvas, set in the options | Matrix, Panel and Spot modules, set in its Preview card |
+| Pixel art | Presets in a YAML [pixel art format](#pixel-art-format): text frames with a palette, per-frame duration, files in your config folder or saved in the options | Drawings, text and effects from its cards and services |
+| Button | A `tap` event on the Button entity for every short tap | No button events on the Cube Matrix |
+| Matter | Not used | Optional, needed for the lamp's own effects and clock |
+
+Use one of them for a lamp, not both: each one takes over the lamp, and the other one's picture is lost.
 
 ## Before you install
 
@@ -61,7 +77,17 @@ This way the lamp keeps the same address after a restart of the lamp or the rout
 
 ## Installation
 
+### HACS
+
+[![Open in HACS](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=ARtoriouSs&repository=yeelight-cubematrix-ha&category=integration)
+
+1. Open **HACS** and search for **Yeelight Cube Matrix**.
+2. Open it, choose **Download** and confirm.
+3. Restart Home Assistant.
+
 ### HACS (custom repository)
+
+If the search doesn't find it, add the repository by hand:
 
 1. In HACS, open the menu, choose **Custom repositories**.
 2. Add `https://github.com/ARtoriouSs/yeelight-cubematrix-ha`, category **Integration**.
